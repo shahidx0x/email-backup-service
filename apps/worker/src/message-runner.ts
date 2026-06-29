@@ -43,6 +43,11 @@ async function bootstrap(): Promise<void> {
   const cipher = new CredentialCipher(new Map([[1, Buffer.from(config.get('CREDENTIAL_ENCRYPTION_KEY', { infer: true }), 'base64')]]), 1);
   const queues = new QueueRegistry(config.get('REDIS_HOST', { infer: true }), config.get('REDIS_PORT', { infer: true }), config.get('REDIS_PASSWORD', { infer: true }));
   const connection = createRedisConnection(config.get('REDIS_HOST', { infer: true }), config.get('REDIS_PORT', { infer: true }), config.get('REDIS_PASSWORD', { infer: true }));
+  await queues.get('incremental-sync').upsertJobScheduler(
+    'source-deletion-reconciliation',
+    { pattern: config.get('RECONCILIATION_CRON', { infer: true }) },
+    { name: 'incremental-sync', data: { scope: 'reconcile' }, opts: { removeOnComplete: 1000, removeOnFail: false } },
+  );
   const processJob = async (job: Job): Promise<unknown> => {
     const data = job.data as Data;
     if (!data.folderId) {
