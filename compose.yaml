@@ -42,7 +42,13 @@ x-app-environment: &app-environment
   SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-100}
   SYNC_FOLDER_CONCURRENCY: ${SYNC_FOLDER_CONCURRENCY:-2}
   SYNC_MESSAGE_CONCURRENCY: ${SYNC_MESSAGE_CONCURRENCY:-5}
+  MAX_MESSAGE_SIZE_BYTES: ${MAX_MESSAGE_SIZE_BYTES:-104857600}
+  MAX_ATTACHMENT_SIZE_BYTES: ${MAX_ATTACHMENT_SIZE_BYTES:-104857600}
+  MAX_EXPORT_SIZE_BYTES: ${MAX_EXPORT_SIZE_BYTES:-107374182400}
   EXPORT_DIRECTORY: ${EXPORT_DIRECTORY:-/data/exports}
+  EXPORT_EXPIRATION_HOURS: ${EXPORT_EXPIRATION_HOURS:-24}
+  DEFAULT_RESTORE_FOLDER: ${DEFAULT_RESTORE_FOLDER:-Recovered Email Backup}
+  DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-0}
   LOG_LEVEL: ${LOG_LEVEL:-info}
   METRICS_ENABLED: ${METRICS_ENABLED:-true}
   SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
@@ -157,6 +163,98 @@ services:
       interval: 30s
       timeout: 5s
       retries: 5
+
+  message-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/message-runner.js"]
+    environment:
+      <<: *app-environment
+      MESSAGE_WORKER_HEALTH_PORT: 3005
+      MESSAGE_WORKER_CONCURRENCY: ${MESSAGE_WORKER_CONCURRENCY:-2}
+    secrets: *app-secrets
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3005/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  transfer-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/transfer-main.js"]
+    environment:
+      <<: *app-environment
+      TRANSFER_WORKER_HEALTH_PORT: 3004
+      EXPORT_WORKER_CONCURRENCY: ${EXPORT_WORKER_CONCURRENCY:-2}
+    secrets: *app-secrets
+    volumes:
+      - export_data:/data/exports
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  restore-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/restore-runner.js"]
+    environment:
+      <<: *app-environment
+      RESTORE_WORKER_HEALTH_PORT: 3006
+      RESTORE_WORKER_CONCURRENCY: ${RESTORE_WORKER_CONCURRENCY:-1}
+    secrets: *app-secrets
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3006/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   scheduler:
     <<: *common
