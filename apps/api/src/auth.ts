@@ -2,16 +2,18 @@ import { Body, Controller, Get, Injectable, Module, OnModuleInit, Post, Req, Res
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtService } from '@nestjs/jwt';
 import { InjectModel, MongooseModule } from '@nestjs/mongoose';
-import { IsEmail, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsOptional, IsString, Length, MinLength } from 'class-validator';
 import { Model } from 'mongoose';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import * as argon2 from 'argon2';
+import { authenticator } from 'otplib';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { AppConfig } from '@email-backup/config';
 import { RefreshToken, RefreshTokenSchema, User, UserSchema, type UserDocument } from '@email-backup/database';
 import { CurrentUser, Public, type AuthenticatedUser } from './common';
 
-class LoginDto { @IsEmail() email!: string; @IsString() @MinLength(8) password!: string; @IsOptional() @IsString() mfaCode?: string; }
+class LoginDto { @IsEmail() email!: string; @IsString() @MinLength(8) password!: string; @IsOptional() @IsString() @Length(6, 8) mfaCode?: string; }
+class MfaCodeDto { @IsString() @Length(6, 8) code!: string; }
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -37,9 +39,10 @@ export class AuthService implements OnModuleInit {
     return { accessToken, expiresIn: this.config.get('JWT_ACCESS_TTL_SECONDS', { infer: true }) };
   }
   async login(dto: LoginDto, request: FastifyRequest, reply: FastifyReply) {
-    const user = await this.users.findOne({ email: dto.email.toLowerCase(), active: true }).select('+passwordHash').exec() as UserDocument | null;
-    const valid = user ? await argon2.verify(user.passwordHash, dto.password).catch(() => false) : false;
-    if (!user || !valid) throw new UnauthorizedException('Invalid credentials');
+    const user = await this.users.findOne({ email: dto.email.toLowerCase(), active: true }).select('+passwordHash +mfaSecret').exec() as UserDocument | null;
+    const passwordValid = user ? await argon2.verify(user.passwordHash, dto.password).catch(() => false) : false;
+    const mfaValid = user?.mfaEnabled ? Boolean(user.mfaSecret && dto.mfaCode && authenticator.check(dto.mfaCode, user.mfaSecret)) : true;
+    if (!user || !passwordValid || !mfaValid) throw new UnauthorizedException('Invalid credentials');
     return this.issue(user, request, reply);
   }
   private validateCsrf(request: FastifyRequest): void {
@@ -64,10 +67,23 @@ export class AuthService implements OnModuleInit {
     this.validateCsrf(request);
     const raw = request.cookies.refresh_token;
     if (raw) {
-      try { const p = await this.jwt.verifyAsync<{ jti: string }>(raw, { secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }) }); await this.refreshTokens.updateOne({ tokenId: p.jti }, { revokedAt: new Date() }); } catch { /* already invalid */ }
+      try { const payload = await this.jwt.verifyAsync<{ jti: string }>(raw, { secret: this.config.get('JWT_REFRESH_SECRET', { infer: true }) }); await this.refreshTokens.updateOne({ tokenId: payload.jti }, { revokedAt: new Date() }); } catch { /* token is already invalid */ }
     }
     reply.clearCookie('refresh_token', { path: '/api/auth' }); reply.clearCookie('csrf_token', { path: '/' });
     return { success: true };
+  }
+  async setupMfa(user: AuthenticatedUser) {
+    const secret = authenticator.generateSecret();
+    await this.users.updateOne({ _id: user.sub }, { mfaSecret: secret, mfaEnabled: false });
+    return { secret, otpauthUrl: authenticator.keyuri(user.email, 'Email Backup Platform', secret) };
+  }
+  async verifyMfa(user: AuthenticatedUser, code: string) {
+    const record = await this.users.findById(user.sub).select('+mfaSecret').exec();
+    if (!record?.mfaSecret || !authenticator.check(code, record.mfaSecret)) throw new UnauthorizedException('Invalid verification code');
+    record.mfaEnabled = true;
+    await record.save();
+    await this.refreshTokens.updateMany({ userId: record._id, revokedAt: { $exists: false } }, { revokedAt: new Date() });
+    return { verified: true, mfaEnabled: true };
   }
 }
 
@@ -78,6 +94,8 @@ export class AuthController {
   @Public() @Post('refresh') refresh(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return this.auth.refresh(req, reply); }
   @Public() @Post('logout') logout(@Req() req: FastifyRequest, @Res({ passthrough: true }) reply: FastifyReply) { return this.auth.logout(req, reply); }
   @Get('me') me(@CurrentUser() user: AuthenticatedUser) { return user; }
+  @Post('mfa/setup') setupMfa(@CurrentUser() user: AuthenticatedUser) { return this.auth.setupMfa(user); }
+  @Post('mfa/verify') verifyMfa(@CurrentUser() user: AuthenticatedUser, @Body() dto: MfaCodeDto) { return this.auth.verifyMfa(user, dto.code); }
 }
 
 @Module({ imports: [JwtModule.register({}), MongooseModule.forFeature([{ name: User.name, schema: UserSchema }, { name: RefreshToken.name, schema: RefreshTokenSchema }])], controllers: [AuthController], providers: [AuthService], exports: [JwtModule] })
