@@ -31,6 +31,7 @@ jobs:
           cat bootstrap/project.part* | tr -d '\n' | base64 --decode > /tmp/email-backup-project.tar.xz
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           tar -xJf /tmp/email-backup-project.tar.xz -C .
+          rm -rf .github
       - name: Commit readable project source
         shell: bash
         run: |
