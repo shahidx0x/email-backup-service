@@ -1,0 +1,41 @@
+name: CI
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.12.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --no-frozen-lockfile
+      - name: Typecheck
+        run: pnpm typecheck 2>&1 | tee typecheck.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typecheck-log
+          path: typecheck.log
+      - name: Test
+        run: pnpm test 2>&1 | tee test.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-log
+          path: test.log
+      - name: Build
+        run: pnpm build 2>&1 | tee build.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: build-log
+          path: build.log
+      - run: docker compose config --quiet

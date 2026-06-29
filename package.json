@@ -1,0 +1,23 @@
+{
+  "name": "email-backup-platform",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.12.4",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "build": "pnpm -r --sort build",
+    "dev": "pnpm --parallel --filter './apps/**' dev",
+    "start:api": "pnpm --filter @email-backup/api start",
+    "start:worker": "pnpm --filter @email-backup/worker start",
+    "start:scheduler": "pnpm --filter @email-backup/scheduler start",
+    "start:web": "pnpm --filter @email-backup/web start",
+    "test": "pnpm -r --if-present test",
+    "test:unit": "pnpm --filter @email-backup/encryption test && pnpm --filter @email-backup/config test",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "clean": "pnpm -r --if-present clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,48 @@
+services:
+  frontend:
+    build:
+      target: development
+    command: ["pnpm", "--filter", "@email-backup/web", "dev", "--hostname", "0.0.0.0", "--port", "3001"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+
+  api:
+    build:
+      target: development
+    command: ["pnpm", "--filter", "@email-backup/api", "dev"]
+    environment:
+      NODE_ENV: development
+      SWAGGER_ENABLED: "true"
+      OPENAPI_JSON_ENABLED: "true"
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+    read_only: false
+
+  worker:
+    build:
+      target: development
+    command: ["pnpm", "--filter", "@email-backup/worker", "dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+    read_only: false
+
+  scheduler:
+    build:
+      target: development
+    command: ["pnpm", "--filter", "@email-backup/scheduler", "dev"]
+    environment:
+      NODE_ENV: development
+    volumes:
+      - .:/workspace
+      - node_modules:/workspace/node_modules
+    read_only: false
+
+volumes:
+  node_modules:

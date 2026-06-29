@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.next/
+coverage/
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/.gitkeep
+!secrets/README.md
+/data/
+*.log
+.DS_Store

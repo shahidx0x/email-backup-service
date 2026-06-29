@@ -1,0 +1,1 @@
+{"name":"@email-backup/queue","version":"0.1.0","private":true,"main":"dist/index.js","types":"dist/index.d.ts","scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc -p tsconfig.json --noEmit","clean":"rm -rf dist"},"dependencies":{"@email-backup/domain":"workspace:*","bullmq":"^5.79.2","ioredis":"^5.11.1"},"devDependencies":{"typescript":"^5.9.3"}}

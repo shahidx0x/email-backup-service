@@ -1,0 +1,41 @@
+{
+  "name": "@email-backup/worker",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@email-backup/config": "workspace:*",
+    "@email-backup/database": "workspace:*",
+    "@email-backup/domain": "workspace:*",
+    "@email-backup/encryption": "workspace:*",
+    "@email-backup/imap": "workspace:*",
+    "@email-backup/metrics": "workspace:*",
+    "@email-backup/queue": "workspace:*",
+    "@email-backup/shared": "workspace:*",
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/config": "^4.0.2",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/mongoose": "^11.0.4",
+    "archiver": "^7.0.1",
+    "bullmq": "^5.79.2",
+    "imapflow": "^1.0.195",
+    "mailparser": "^3.7.4",
+    "mongodb": "^6.18.0",
+    "mongoose": "^8.18.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
+  }
+}

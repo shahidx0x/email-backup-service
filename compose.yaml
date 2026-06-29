@@ -1,0 +1,479 @@
+name: email-backup-platform
+
+x-common: &common
+  restart: unless-stopped
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+x-app-environment: &app-environment
+  NODE_ENV: ${NODE_ENV:-production}
+  MONGODB_HOST: ${MONGODB_HOST:-mongodb}
+  MONGODB_PORT: ${MONGODB_PORT:-27017}
+  MONGODB_DATABASE: ${MONGODB_DATABASE:-email_backup}
+  MONGODB_REPLICA_SET: ${MONGODB_REPLICA_SET:-rs0}
+  MONGODB_AUTH_SOURCE: ${MONGODB_AUTH_SOURCE:-admin}
+  MONGODB_APP_USERNAME_FILE: /run/secrets/mongodb_app_username
+  MONGODB_APP_PASSWORD_FILE: /run/secrets/mongodb_app_password
+  REDIS_HOST: ${REDIS_HOST:-redis}
+  REDIS_PORT: ${REDIS_PORT:-6379}
+  REDIS_PASSWORD_FILE: /run/secrets/redis_password
+  JWT_ACCESS_SECRET_FILE: /run/secrets/jwt_access_secret
+  JWT_REFRESH_SECRET_FILE: /run/secrets/jwt_refresh_secret
+  CREDENTIAL_ENCRYPTION_KEY_FILE: /run/secrets/credential_encryption_key
+  ADMIN_INITIAL_PASSWORD_FILE: /run/secrets/admin_initial_password
+  ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-dev.imshahid@gmail.com}
+  API_PORT: 3000
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:3001}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3001}
+  TRUST_PROXY: ${TRUST_PROXY:-true}
+  IMAP_DEFAULT_HOST: ${IMAP_DEFAULT_HOST:-imap.hostinger.com}
+  IMAP_DEFAULT_PORT: ${IMAP_DEFAULT_PORT:-993}
+  IMAP_DEFAULT_TLS: ${IMAP_DEFAULT_TLS:-true}
+  IMAP_IDLE_ENABLED: ${IMAP_IDLE_ENABLED:-true}
+  IMAP_POLL_INTERVAL_SECONDS: ${IMAP_POLL_INTERVAL_SECONDS:-300}
+  IMAP_CONNECTION_TIMEOUT_SECONDS: ${IMAP_CONNECTION_TIMEOUT_SECONDS:-30}
+  IMAP_MAX_GLOBAL_CONNECTIONS: ${IMAP_MAX_GLOBAL_CONNECTIONS:-20}
+  IMAP_MAX_CONNECTIONS_PER_MAILBOX: ${IMAP_MAX_CONNECTIONS_PER_MAILBOX:-2}
+  SYNC_BATCH_SIZE: ${SYNC_BATCH_SIZE:-100}
+  SYNC_FOLDER_CONCURRENCY: ${SYNC_FOLDER_CONCURRENCY:-2}
+  SYNC_MESSAGE_CONCURRENCY: ${SYNC_MESSAGE_CONCURRENCY:-5}
+  MAX_MESSAGE_SIZE_BYTES: ${MAX_MESSAGE_SIZE_BYTES:-104857600}
+  MAX_ATTACHMENT_SIZE_BYTES: ${MAX_ATTACHMENT_SIZE_BYTES:-104857600}
+  MAX_EXPORT_SIZE_BYTES: ${MAX_EXPORT_SIZE_BYTES:-107374182400}
+  EXPORT_DIRECTORY: ${EXPORT_DIRECTORY:-/data/exports}
+  EXPORT_EXPIRATION_HOURS: ${EXPORT_EXPIRATION_HOURS:-24}
+  DEFAULT_RESTORE_FOLDER: ${DEFAULT_RESTORE_FOLDER:-Recovered Email Backup}
+  DEFAULT_RETENTION_DAYS: ${DEFAULT_RETENTION_DAYS:-0}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  METRICS_ENABLED: ${METRICS_ENABLED:-true}
+  SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
+  SWAGGER_PATH: ${SWAGGER_PATH:-api/docs}
+  OPENAPI_JSON_ENABLED: ${OPENAPI_JSON_ENABLED:-false}
+  OPENAPI_JSON_PATH: ${OPENAPI_JSON_PATH:-api/openapi.json}
+  JWT_ACCESS_TTL_SECONDS: ${JWT_ACCESS_TTL_SECONDS:-900}
+  JWT_REFRESH_TTL_SECONDS: ${JWT_REFRESH_TTL_SECONDS:-2592000}
+  FOLDER_DISCOVERY_CRON: ${FOLDER_DISCOVERY_CRON:-0 */6 * * *}
+  RECONCILIATION_CRON: ${RECONCILIATION_CRON:-0 2 * * *}
+  INTEGRITY_SAMPLE_CRON: ${INTEGRITY_SAMPLE_CRON:-0 3 * * *}
+  FULL_INTEGRITY_CRON: ${FULL_INTEGRITY_CRON:-0 4 * * 0}
+  EXPORT_CLEANUP_CRON: ${EXPORT_CLEANUP_CRON:-0 * * * *}
+  STATISTICS_REFRESH_CRON: ${STATISTICS_REFRESH_CRON:-*/15 * * * *}
+  CONNECTIVITY_CHECK_CRON: ${CONNECTIVITY_CHECK_CRON:-0 * * * *}
+  STALE_LOCK_CLEANUP_CRON: ${STALE_LOCK_CLEANUP_CRON:-*/10 * * * *}
+
+services:
+  frontend:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      HOSTNAME: 0.0.0.0
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+    ports:
+      - "${FRONTEND_BIND_ADDRESS:-127.0.0.1}:${FRONTEND_PORT:-3001}:3001"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - application_network
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  api:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/api/dist/main.js"]
+    environment:
+      <<: *app-environment
+    ports:
+      - "${API_BIND_ADDRESS:-127.0.0.1}:${API_PORT:-3000}:3000"
+    secrets: &app-secrets
+      - mongodb_app_username
+      - mongodb_app_password
+      - redis_password
+      - jwt_access_secret
+      - jwt_refresh_secret
+      - credential_encryption_key
+      - admin_initial_password
+    volumes:
+      - export_data:/data/exports
+    networks:
+      - application_network
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 20s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/main.js"]
+    environment:
+      <<: *app-environment
+      WORKER_HEALTH_PORT: 3002
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+    secrets: *app-secrets
+    volumes:
+      - export_data:/data/exports
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  message-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/message-runner.js"]
+    environment:
+      <<: *app-environment
+      MESSAGE_WORKER_HEALTH_PORT: 3005
+      MESSAGE_WORKER_CONCURRENCY: ${MESSAGE_WORKER_CONCURRENCY:-2}
+    secrets: *app-secrets
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3005/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  transfer-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/transfer-main.js"]
+    environment:
+      <<: *app-environment
+      TRANSFER_WORKER_HEALTH_PORT: 3004
+      EXPORT_WORKER_CONCURRENCY: ${EXPORT_WORKER_CONCURRENCY:-2}
+    secrets: *app-secrets
+    volumes:
+      - export_data:/data/exports
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3004/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  restore-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/worker/dist/restore-runner.js"]
+    environment:
+      <<: *app-environment
+      RESTORE_WORKER_HEALTH_PORT: 3006
+      RESTORE_WORKER_CONCURRENCY: ${RESTORE_WORKER_CONCURRENCY:-1}
+    secrets: *app-secrets
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3006/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  scheduler:
+    <<: *common
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    command: ["node", "/services/scheduler/dist/main.js"]
+    environment:
+      <<: *app-environment
+      SCHEDULER_HEALTH_PORT: 3003
+    secrets: *app-secrets
+    networks:
+      - data_network
+      - monitoring_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3003/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    <<: *common
+    image: mongo:7.0
+    command:
+      - bash
+      - -lc
+      - |
+        cp /run/secrets/mongodb_replica_key /data/configdb/keyfile
+        chmod 400 /data/configdb/keyfile
+        chown mongodb:mongodb /data/configdb/keyfile
+        exec docker-entrypoint.sh mongod --replSet rs0 --bind_ip_all --auth --keyFile /data/configdb/keyfile
+    environment:
+      MONGO_INITDB_ROOT_USERNAME_FILE: /run/secrets/mongodb_root_username
+      MONGO_INITDB_ROOT_PASSWORD_FILE: /run/secrets/mongodb_root_password
+    secrets:
+      - mongodb_root_username
+      - mongodb_root_password
+      - mongodb_replica_key
+    volumes:
+      - mongodb_data:/data/db
+      - mongodb_config:/data/configdb
+    networks:
+      - data_network
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --host 127.0.0.1 -u \"$$(cat /run/secrets/mongodb_root_username)\" -p \"$$(cat /run/secrets/mongodb_root_password)\" --authenticationDatabase admin --eval 'db.adminCommand({ping:1}).ok' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    stop_grace_period: 60s
+
+  mongo-init:
+    image: mongo:7.0
+    restart: "no"
+    entrypoint: ["bash", "/scripts/init-replica-set.sh"]
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-email_backup}
+    secrets:
+      - mongodb_root_username
+      - mongodb_root_password
+      - mongodb_app_username
+      - mongodb_app_password
+    volumes:
+      - ./docker/mongodb/init-replica-set.sh:/scripts/init-replica-set.sh:ro
+    networks:
+      - data_network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+  redis:
+    <<: *common
+    image: redis:7.4-alpine
+    command:
+      - sh
+      - -ec
+      - exec redis-server --appendonly yes --appendfsync everysec --save 60 1000 --requirepass "$$(cat /run/secrets/redis_password)" --maxmemory-policy noeviction --protected-mode yes
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    networks:
+      - data_network
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  prometheus:
+    <<: *common
+    image: prom/prometheus:v3.4.1
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION_TIME:-30d}
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - monitoring_network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  grafana:
+    <<: *common
+    image: grafana/grafana:12.0.2
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD__FILE: /run/secrets/grafana_admin_password
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SERVER_HTTP_PORT: 3000
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3002}:3000"
+    secrets:
+      - grafana_admin_password
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    networks:
+      - monitoring_network
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  backup:
+    <<: *common
+    build:
+      context: .
+      dockerfile: docker/backup/Dockerfile
+    environment:
+      MONGODB_HOST: mongodb
+      MONGODB_PORT: 27017
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-email_backup}
+      MONGODB_AUTH_SOURCE: ${MONGODB_AUTH_SOURCE:-admin}
+      BACKUP_SCHEDULE: ${BACKUP_SCHEDULE:-0 1 * * *}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      BACKUP_ENCRYPTION_ENABLED: ${BACKUP_ENCRYPTION_ENABLED:-false}
+      S3_BACKUP_ENABLED: ${S3_BACKUP_ENABLED:-false}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+    secrets:
+      - mongodb_app_username
+      - mongodb_app_password
+      - backup_encryption_key
+    volumes:
+      - ./docker/backup/backup.sh:/scripts/backup.sh:ro
+      - ./docker/backup/restore.sh:/scripts/restore.sh:ro
+      - backup_data:/backups
+    networks:
+      - data_network
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+
+volumes:
+  mongodb_data:
+  mongodb_config:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  export_data:
+  backup_data:
+
+networks:
+  application_network:
+  data_network:
+    internal: true
+  monitoring_network:
+    internal: true
+
+secrets:
+  mongodb_root_username:
+    file: ./secrets/mongodb_root_username
+  mongodb_root_password:
+    file: ./secrets/mongodb_root_password
+  mongodb_app_username:
+    file: ./secrets/mongodb_app_username
+  mongodb_app_password:
+    file: ./secrets/mongodb_app_password
+  mongodb_replica_key:
+    file: ./secrets/mongodb_replica_key
+  redis_password:
+    file: ./secrets/redis_password
+  jwt_access_secret:
+    file: ./secrets/jwt_access_secret
+  jwt_refresh_secret:
+    file: ./secrets/jwt_refresh_secret
+  credential_encryption_key:
+    file: ./secrets/credential_encryption_key
+  admin_initial_password:
+    file: ./secrets/admin_initial_password
+  grafana_admin_password:
+    file: ./secrets/grafana_admin_password
+  backup_encryption_key:
+    file: ./secrets/backup_encryption_key
