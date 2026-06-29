@@ -1,0 +1,36 @@
+name: Materialize project
+
+on:
+  push:
+    branches: [dev]
+    paths:
+      - "bootstrap/project.part*"
+      - ".github/workflows/materialize.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Reconstruct and extract source tree
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat bootstrap/project.part* | tr -d '\n' | base64 --decode > /tmp/email-backup-project.tar.xz
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          tar -xJf /tmp/email-backup-project.tar.xz -C .
+      - name: Commit readable project source
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: add phase 1 production platform foundation"
+          git push origin HEAD:dev
