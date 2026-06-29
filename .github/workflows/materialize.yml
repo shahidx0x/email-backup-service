@@ -6,6 +6,11 @@ on:
     paths:
       - "bootstrap/project.part*"
       - ".github/workflows/materialize.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "bootstrap/project.part*"
+      - ".github/workflows/materialize.yml"
 
 permissions:
   contents: write
@@ -17,6 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: dev
           fetch-depth: 0
       - name: Reconstruct and extract source tree
         shell: bash
