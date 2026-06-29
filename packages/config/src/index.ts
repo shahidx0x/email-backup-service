@@ -40,7 +40,13 @@ const schema = z.object({
   SYNC_BATCH_SIZE: int(100),
   SYNC_FOLDER_CONCURRENCY: int(2),
   SYNC_MESSAGE_CONCURRENCY: int(5),
+  MAX_MESSAGE_SIZE_BYTES: int(104_857_600),
+  MAX_ATTACHMENT_SIZE_BYTES: int(104_857_600),
+  MAX_EXPORT_SIZE_BYTES: int(107_374_182_400),
   EXPORT_DIRECTORY: z.string().default('/data/exports'),
+  EXPORT_EXPIRATION_HOURS: int(24),
+  DEFAULT_RESTORE_FOLDER: z.string().min(1).default('Recovered Email Backup'),
+  DEFAULT_RETENTION_DAYS: int(0),
   LOG_LEVEL: z.enum(['fatal','error','warn','info','debug','trace','silent']).default('info'),
   METRICS_ENABLED: bool.default(true),
   SWAGGER_ENABLED: bool.default(false),
@@ -84,8 +90,13 @@ export function parseConfig(input: NodeJS.ProcessEnv = process.env): AppConfig {
   if (config.NODE_ENV === 'production' && (config.SWAGGER_ENABLED || config.OPENAPI_JSON_ENABLED)) {
     throw new Error('Unsafe production configuration: Swagger and OpenAPI routes must be disabled');
   }
+  if (config.NODE_ENV === 'production' && !config.PUBLIC_BASE_URL.startsWith('https://')) {
+    throw new Error('Unsafe production configuration: PUBLIC_BASE_URL must use HTTPS');
+  }
   const key = Buffer.from(config.CREDENTIAL_ENCRYPTION_KEY, 'base64');
   if (key.length !== 32) throw new Error('CREDENTIAL_ENCRYPTION_KEY must be a base64-encoded 32-byte key');
+  if (config.SYNC_BATCH_SIZE < 1 || config.SYNC_BATCH_SIZE > 1000) throw new Error('SYNC_BATCH_SIZE must be between 1 and 1000');
+  if (config.MAX_ATTACHMENT_SIZE_BYTES > config.MAX_MESSAGE_SIZE_BYTES) throw new Error('MAX_ATTACHMENT_SIZE_BYTES cannot exceed MAX_MESSAGE_SIZE_BYTES');
   return config;
 }
 
