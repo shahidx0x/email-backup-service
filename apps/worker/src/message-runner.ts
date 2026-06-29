@@ -3,10 +3,9 @@ import { createServer, type Server } from 'node:http';
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
-import { InjectConnection, MongooseModule } from '@nestjs/mongoose';
+import { getConnectionToken, getModelToken, MongooseModule } from '@nestjs/mongoose';
 import { Worker, type Job } from 'bullmq';
 import { Model, type Connection } from 'mongoose';
-import { getModelToken } from '@nestjs/mongoose';
 import { buildMongoUri, parseConfig, type AppConfig } from '@email-backup/config';
 import { BinaryObject, BinaryObjectSchema, Mailbox, MailboxSchema, MailFolder, MailFolderSchema, MessageLocation, MessageLocationSchema, StoredAttachment, StoredAttachmentSchema, StoredMessage, StoredMessageSchema, SyncErrorSchema, SyncEventSchema } from '@email-backup/database';
 import { CredentialCipher } from '@email-backup/encryption';
@@ -38,6 +37,7 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService<AppConfig, true>);
   const mailboxes = app.get<Model<Mailbox>>(getModelToken(Mailbox.name));
   const folders = app.get<Model<MailFolder>>(getModelToken(MailFolder.name));
+  const mongo = app.get<Connection>(getConnectionToken());
   const sync = app.get(SyncEngine);
   const imap = new ImapClientService();
   const cipher = new CredentialCipher(new Map([[1, Buffer.from(config.get('CREDENTIAL_ENCRYPTION_KEY', { infer: true }), 'base64')]]), 1);
@@ -66,7 +66,6 @@ async function bootstrap(): Promise<void> {
   };
   const concurrency = Math.max(1, Number(process.env.MESSAGE_WORKER_CONCURRENCY ?? config.get('SYNC_FOLDER_CONCURRENCY', { infer: true })));
   const workers = ['initial-sync', 'incremental-sync'].map((name) => new Worker(name, processJob, { connection, concurrency, lockDuration: 900_000, maxStalledCount: 2 }));
-  const mongo = app.get<Connection>(Connection as unknown as string);
   let server: Server | undefined;
   const port = Number(process.env.MESSAGE_WORKER_HEALTH_PORT ?? 3005);
   server = createServer((_request, response) => { const healthy = mongo.readyState === 1; response.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' }); response.end(JSON.stringify({ status: healthy ? 'ok' : 'unhealthy' })); });
