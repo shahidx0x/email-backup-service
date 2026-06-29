@@ -1,0 +1,1 @@
+{"name":"@email-backup/imap","version":"0.1.0","private":true,"main":"dist/index.js","types":"dist/index.d.ts","scripts":{"build":"tsc -p tsconfig.json","typecheck":"tsc -p tsconfig.json --noEmit","clean":"rm -rf dist"},"dependencies":{"imapflow":"^1.4.3","mailparser":"^3.9.12"},"devDependencies":{"@types/mailparser":"^3.4.6","typescript":"^5.9.3"}}

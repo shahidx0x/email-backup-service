@@ -1,0 +1,6 @@
+{
+  "name":"@email-backup/scheduler","version":"0.1.0","private":true,"main":"dist/main.js",
+  "scripts":{"build":"tsc -p tsconfig.json","dev":"tsx watch src/main.ts","start":"node dist/main.js","typecheck":"tsc -p tsconfig.json --noEmit","clean":"rm -rf dist"},
+  "dependencies":{"@email-backup/config":"workspace:*","@email-backup/metrics":"workspace:*","@email-backup/queue":"workspace:*","@nestjs/common":"^11.1.27","@nestjs/config":"^4.0.2","@nestjs/core":"^11.1.27","reflect-metadata":"^0.2.2","rxjs":"^7.8.2"},
+  "devDependencies":{"@types/node":"^22.15.0","tsx":"^4.20.6","typescript":"^5.9.3"}
+}
