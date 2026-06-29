@@ -28,8 +28,12 @@ class SchedulerRuntime implements OnApplicationBootstrap, OnApplicationShutdown 
     ['statistics','statistics-refresh',this.config.get('STATISTICS_REFRESH_CRON',{infer:true}),'statistics'],
     ['mailbox-connect','connectivity-check',this.config.get('CONNECTIVITY_CHECK_CRON',{infer:true}),'connectivity'],
     ['cleanup','stale-lock-cleanup',this.config.get('STALE_LOCK_CLEANUP_CRON',{infer:true}),'locks'],
+    ['retention','retention-scan','30 4 * * *','retention'],
   ];
-  for(const[queueName,id,pattern,name]of schedules){await this.queues.get(queueName as QueueName).upsertJobScheduler(id,{pattern},{name,data:{scope:'global'},opts:{removeOnComplete:1000,removeOnFail:false}});}}
+  for(const[queueName,id,pattern,name]of schedules){await this.queues.get(queueName as QueueName).upsertJobScheduler(id,{pattern},{name,data:{scope:name},opts:{removeOnComplete:1000,removeOnFail:false}});}
+  const every=this.config.get('IMAP_POLL_INTERVAL_SECONDS',{infer:true})*1000;
+  await this.queues.get('incremental-sync').upsertJobScheduler('incremental-polling',{every},{name:'incremental-sync',data:{scope:'global'},opts:{removeOnComplete:1000,removeOnFail:false}});
+  }
   async onApplicationShutdown(){if(this.renew)clearInterval(this.renew);if(this.heartbeat)clearInterval(this.heartbeat);if(this.leader){const key='email-backup:scheduler:leader';const current=await this.queues.connection.get(key);if(current===this.instanceId)await this.queues.connection.del(key);}await this.queues.close();if(this.server)await new Promise<void>((resolve,reject)=>this.server!.close(e=>e?reject(e):resolve()));}
 }
 @Module({imports:[ConfigModule.forRoot({isGlobal:true,cache:true,validate:v=>parseConfig(v)})],providers:[SchedulerRuntime]})class SchedulerModule{}
