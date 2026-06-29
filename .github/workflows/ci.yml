@@ -20,7 +20,14 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --no-frozen-lockfile
-      - run: pnpm typecheck
+      - name: Typecheck
+        run: pnpm typecheck 2>&1 | tee typecheck.log
+      - name: Upload validation logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-logs
+          path: typecheck.log
       - run: pnpm test
       - run: pnpm build
       - run: docker compose config --quiet
